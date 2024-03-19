@@ -1,57 +1,71 @@
-import {AfterViewInit, Component, ElementRef, OnInit, ViewChild} from '@angular/core';
-import {ActivatedRoute} from "@angular/router";
-import {Course} from "../model/course";
 import {
-    debounceTime,
-    distinctUntilChanged,
-    startWith,
-    tap,
-    delay,
-    map,
-    concatMap,
-    switchMap,
-    withLatestFrom,
-    concatAll, shareReplay
-} from 'rxjs/operators';
-import {merge, fromEvent, Observable, concat} from 'rxjs';
-import {Lesson} from '../model/lesson';
-
+  AfterViewInit,
+  Component,
+  ElementRef,
+  OnInit,
+  ViewChild,
+} from "@angular/core";
+import { ActivatedRoute } from "@angular/router";
+import { Observable, concat, fromEvent, of } from "rxjs";
+import {
+  debounceTime,
+  distinctUntilChanged,
+  map,
+  switchMap,
+} from "rxjs/operators";
+import { RxJsLoggingLevel, debug, setRxJsLoggingLevel } from "../common/debug";
+import { createHttoObservable } from "../common/util";
+import { Course } from "../model/course";
+import { Lesson } from "../model/lesson";
 
 @Component({
-    selector: 'course',
-    templateUrl: './course.component.html',
-    styleUrls: ['./course.component.css']
+  selector: "course",
+  templateUrl: "./course.component.html",
+  styleUrls: ["./course.component.css"],
 })
 export class CourseComponent implements OnInit, AfterViewInit {
+  courseId: string;
+  course$: Observable<Course>;
+  lessons$: Observable<Lesson[]>;
 
+  @ViewChild("searchInput", { static: true }) input: ElementRef;
 
-    course$: Observable<Course>;
-    lessons$: Observable<Lesson[]>;
+  constructor(private route: ActivatedRoute) {}
 
+  ngOnInit() {
+    this.courseId = this.route.snapshot.params["id"];
 
-    @ViewChild('searchInput', { static: true }) input: ElementRef;
+    this.course$ = createHttoObservable(`/api/courses/${this.courseId}`).pipe(
+      debug(RxJsLoggingLevel.INFO, "course value")
+    );
 
-    constructor(private route: ActivatedRoute) {
+    setRxJsLoggingLevel(RxJsLoggingLevel.TRACE);
+  }
 
+  ngAfterViewInit() {
+    const searchLessons$ = fromEvent(this.input.nativeElement, "keyup").pipe(
+      // tap(() => console.log("keyup event")),
+      map((event: any) => event.target.value),
+      debug(RxJsLoggingLevel.TRACE, "search"),
+      debounceTime(400),
+      distinctUntilChanged(),
+      switchMap((search) => this.loadLessons(search)),
+      debug(RxJsLoggingLevel.DEBUG, "lessons value")
+    );
 
-    }
+    const initialLessons$ = this.loadLessons();
 
-    ngOnInit() {
+    const combinedLessons$ = concat(initialLessons$, searchLessons$);
 
-        const courseId = this.route.snapshot.params['id'];
+    combinedLessons$.subscribe((lessons) => {
+      this.lessons$ = of(lessons);
+    });
+  }
 
-
-
-    }
-
-    ngAfterViewInit() {
-
-
-
-
-    }
-
-
-
-
+  loadLessons(search: string = ""): Observable<Lesson[]> {
+    // console.log("search", search);
+    return (this.lessons$ = createHttoObservable(
+      `/api/lessons?courseId=${this.courseId}&pageSize=100&filter=${search}`
+    ).pipe(map((res) => res["payload"])));
+  }
 }
